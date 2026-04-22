@@ -1,0 +1,1503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DHARMA">
+<meta name="theme-color" content="#0d47a1">
+<meta name="description" content="India Dam Safety Monitoring – interactive map of dams, health categories, inspection data and spatial filters.">
+
+<title>DHARMA – Dam Safety Map</title>
+
+<!-- PWA manifest -->
+<link rel="manifest" href="manifest.json">
+
+<!-- iOS icons -->
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="152x152" href="icon-152.png">
+<link rel="apple-touch-icon" sizes="192x192" href="icon-192.png">
+
+<!-- Favicon -->
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+
+<!-- iOS splash screens (portrait) -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+<link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css" />
+<script src="https://js.arcgis.com/4.29/"></script>
+
+<style>
+  html, body, #viewDiv {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+    /* iOS safe area support */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  /* ───────── Controls panel ───────── */
+  #controls {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    background: white;
+    padding: 14px;
+    z-index: 99;
+    font-size: 13px;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.3);
+    width: 340px;
+    border-radius: 10px;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+    transition: transform 0.3s ease;
+  }
+
+  #controls.collapsed {
+    transform: translateY(-90%);
+  }
+
+  input[type="text"], select {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 10px;
+    margin-top: 6px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    font-size: 16px; /* iOS zoom fix */
+  }
+
+  .section {
+    font-weight: bold;
+    margin-top: 10px;
+  }
+
+  #results {
+    max-height: 35vh;
+    overflow-y: auto;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    display: none;
+  }
+
+  .result-item {
+    padding: 10px;
+    cursor: pointer;
+  }
+
+  .result-item:hover,
+  .result-item.active {
+    background: #e6e6e6;
+  }
+
+  .search-wrap {
+    position: relative;
+  }
+
+  #clearSearch {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    border: none;
+    background: transparent;
+    font-size: 22px;
+    cursor: pointer;
+    display: none;
+  }
+
+  /* 1. Eliminate the side padding on mobile to use full screen width */
+.esri-view-width-xsmall .esri-popup__main-container,
+.esri-view-width-small .esri-popup__main-container {
+  width: 98vw !important; /* Leaves only 1% padding on each side */
+  max-width: 98vw !important;
+  margin: 0 auto !important;
+  left: 1vw !important; 
+}
+
+.esri-view-width-xsmall .esri-popup__content,
+.esri-view-width-small .esri-popup__content {
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* 2. Force the Table to respect percentage widths */
+.esri-feature-fields__table {
+  width: 100% !important;
+  table-layout: fixed !important; /* This is mandatory to force the 30/70 split */
+  border-collapse: collapse !important;
+  margin: 0 !important;
+}
+
+/* 3. Explicitly define the column ratios */
+.esri-feature-fields__field-header {
+  width: 30% !important;
+  min-width: 30% !important;
+  max-width: 30% !important;
+  padding: 10px 6px !important;
+  word-break: break-word !important;
+  border-right: 1px solid #e0e0e0 !important; /* Optional: adds a vertical divider */
+}
+
+.esri-feature-fields__field-value {
+  width: 70% !important;
+  min-width: 70% !important;
+  max-width: 70% !important;
+  padding: 10px 8px !important;
+  word-break: break-word !important;
+}
+
+/* 4. Desktop wide-view override */
+.esri-view-width-greater-than-small .esri-popup__main-container {
+  width: 500px !important;
+}
+
+/* 5. Font Styles (Normal weight) */
+.esri-feature-fields__field-header,
+.esri-feature-fields__field-value {
+  font-family: Arial, sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  color: #333 !important;
+}
+
+  /* ───────── Mobile specific (Bottom Controls) ───────── */
+  @media (max-width: 768px) {
+    #controls {
+      width: 94%;
+      left: 50% !important; /* Move to center */
+      transform: translateX(-50%); /* Offset by half its width to center exactly */
+      top: auto;
+      bottom: 12px;
+      border-radius: 14px;
+      margin: 0; /* Remove any default margins */
+      box-sizing: border-box;
+    }
+
+    /* This handles the collapsed state while keeping it centered */
+    #controls.collapsed {
+      transform: translate(-50%, calc(100% - 45px)) !important;
+    }
+  }
+</style>
+
+
+<!-- Google Analytics GA4 -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-58510VNE1R"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-58510VNE1R', {
+    anonymize_ip: true
+  });
+</script>
+</head>
+<body>
+
+<div id="controls">
+
+  <!-- SEARCH -->
+  <div id="search-container">
+    <div class="section">Search Dam</div>
+    <div class="search-wrap">
+      <input type="text" id="damSearch" placeholder="Type dam name…" />
+      <button id="clearSearch" title="Clear">×</button>
+    </div>
+    <div id="results"></div>
+  </div>
+
+  <!-- TOGGLES -->
+  <div id="toggle-container">
+
+    <div class="section">Filter by State</div>
+    <select id="stateFilter">
+      <option value="">— All States —</option>
+    </select>
+
+    <div class="section">Filter by SDSO</div>
+    <select id="sdsoFilter">
+      <option value="">— All SDSOs —</option>
+    </select>
+
+    <div class="section">Basemap</div>
+    <select id="basemapSelect">
+      <option value="satellite" selected>Satellite</option>
+	  <option value="hybrid">Hybrid</option>
+      <option value="topo">Topographic</option>
+      <option value="streets">Street</option>
+      <option value="none">No basemap</option>
+    </select>
+
+    <div class="section">Layers</div>
+    <label><input type="checkbox" id="stateChk" checked> State Boundary</label><br>
+    <label><input type="checkbox" id="districtChk"> District Boundary</label><br>
+    <label><input type="checkbox" id="riverChk"> River</label><br>
+    <label><input type="checkbox" id="riverBasinsChk"> River Basins</label><br>
+    <label><input type="checkbox" id="damChk" checked> Dams</label><br>
+    <label><input type="checkbox" id="hoChk"> HO Sites</label>
+
+
+  </div>
+
+</div>
+
+<div id="viewDiv"></div>
+
+<script>
+  
+  const worldLocator =
+  "https://geocode-api.arcgis.com/arcgis/rest/services/World/GeocodeServer";
+
+require([
+  "esri/Map",
+  "esri/views/MapView",
+  "esri/layers/MapImageLayer",
+  "esri/layers/FeatureLayer",
+  "esri/Graphic",
+  "esri/geometry/Point",
+  "esri/widgets/ScaleBar",
+  "esri/widgets/Locate",
+  "esri/rest/locator",
+  "esri/config"
+], function (
+  Map, MapView,
+  MapImageLayer, FeatureLayer,
+  Graphic, Point, ScaleBar, Locate, locator, esriConfig
+) {
+  esriConfig.apiKey = "AAPTxy8BH1VEsoebNVZXo8HurKdAwSbr3tap2eaxJY7Eqwza-FGiC6bjE-hhpBRvGJ2wDnbvdmPI7YFWeiNXNv6su9s4lbgk8V_8AF7vUtQTkgI-5EA5YPbRJgTLnU8DP1qJCTztP8XktMd0xQu99qfTENAzYFXEPc1D-dx7joWwLUqLNFt7ApWKCXPbopJ8oAlWK3wspWKMg0OiMyOmtpo6N0u2d3K5vNHQ_uobPl467zg.AT1_oPY0JXcr";
+
+
+  const results = document.getElementById("results");
+  
+  const isMobile = window.matchMedia("(max-width: 768px)").matches;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const controls = document.getElementById("controls");
+  
+
+  function collapse() { if (isMobile || isIOS) controls.classList.add("collapsed"); }
+  function expand() { if (isMobile || isIOS) controls.classList.remove("collapsed"); }
+
+  esriConfig.request.interceptors.push({
+    urls: /mapservice\.gov\.in/,
+    before: p => {
+      p.requestOptions.query = p.requestOptions.query || {};
+      const u = p.url;
+      if (u.includes("State_Boundary"))
+        p.requestOptions.query.token = "B_MvXZQQA3UJQ3rriTr7Qvo4AE-8f2v0JmAgH3h17-3OVcp7agXot9jS8Q7ZPelzaaShzPs5CR7tqOeucn4Oww..";
+      else if (u.includes("District_Boundary"))
+        p.requestOptions.query.token = "KLafX5W7tKxU3qXCTtWzmiub5IsvSYcYf8OYVbFZaO_5Dlji_67_mzrUu6qCgWJ6djeLy_izw-rxbEWms3Ss0g..";
+      else if (u.includes("River"))
+        p.requestOptions.query.token = "aprsZsvhLhQlrHeo2O-9F-PWMUmaTr7awaxuyKOXtWOMMp0VVG70sfDnNltnsh3SLOqcK8zLNCvPqBThYxn5tw..";
+      else if (u.includes("River Basins"))
+        p.requestOptions.query.token = "LYFmEZL-IKy3-iAuFBbGMpNs0rPaWFMD5KuaJUT7I6OFXUWRxnUhDjR3SJfE-ndgh9aAdyua9Cs8b9POB7R51Q..";
+    }
+  });
+
+  const stateLayer = new MapImageLayer({
+    url: "https://mapservice.gov.in/gismapservice/rest/services/BharatMapService/State_Boundary/MapServer",
+    visible: true
+  });
+
+  const districtLayer = new MapImageLayer({
+    url: "https://mapservice.gov.in/gismapservice/rest/services/BharatMapService/District_Boundary/MapServer",
+    visible: false
+  });
+
+  const riverLayer = new MapImageLayer({
+    url: "https://mapservice.gov.in/gismapservice/rest/services/BharatMapService/River/MapServer",
+    visible: false
+  });
+
+  /* const riverBasinsLayer = new MapImageLayer({
+    url: "https://mapservice.gov.in/gismapservice/rest/services/BharatMapService/Watershed/MapServer",
+    visible: false
+  }); */
+  
+  
+
+  // ──────────────────────────────────────────────────────────────
+  //  FeatureLayer for Dams (points + labels)
+  // ──────────────────────────────────────────────────────────────
+  let damFeatureLayer;
+  let normalDamLabeling;
+
+  const map = new Map({
+    basemap: "satellite",
+    layers: [stateLayer, districtLayer, riverLayer]
+  });
+
+  const view = new MapView({
+    container: "viewDiv",
+    map,
+    extent: { xmin: 68, ymin: 6, xmax: 97, ymax: 37, spatialReference: { wkid: 4326 } },
+    
+    popup: isMobile || isIOS
+  ? {
+      dockEnabled: false
+    }
+  : {
+      dockEnabled: true,
+      dockOptions: {
+        position: "top-right",
+        breakpoint: false
+      }
+    }
+
+
+  });
+
+  // locate
+const locateWidget = new Locate({
+  view: view,
+  useHeadingEnabled: false,
+  goToOverride: function (view, options) {
+    return view.goTo(
+      {
+        target: options.target.target || options.target,
+        scale: 200000
+      },
+      {
+        duration: 2000,   // ✅ SAME speed as dam search
+        easing: "ease-in-out"
+      }
+    );
+  }
+});
+
+view.ui.add(locateWidget, "top-right");
+	
+
+  if (isMobile || isIOS) {
+  controls.classList.add("collapsed");
+
+  controls.addEventListener("click", e => {
+    e.stopPropagation();
+    controls.classList.remove("collapsed");
+  });
+
+  view.on("click", () => {
+    controls.classList.add("collapsed");
+  });
+
+  // Collapse when popup opens OR when user taps a new feature while popup is already open
+  view.when(() => {
+    view.popup.watch("visible", (isVisible) => {
+      if (isVisible) controls.classList.add("collapsed");
+    });
+    view.popup.watch("location", () => {
+      if (view.popup.visible) controls.classList.add("collapsed");
+    });
+  });
+
+  // Collapse on direct touch of the popup container
+  document.addEventListener("touchstart", (e) => {
+    const popup = document.querySelector(".esri-popup__main-container");
+    if (popup && popup.contains(e.target)) {
+      controls.classList.add("collapsed");
+    }
+  }, { passive: true });
+}
+
+  // Feature layer for dams
+  const riverBasinsLabeling = [
+  {
+    labelExpressionInfo: {
+   expression: `
+    When(
+      $feature.BA_NAME == 'West flowing rivers of Kutch and Saurashtra including Luni Basin',
+      'West flowing rivers\\n of Kutch and Saurashtra\\n including Luni Basin',
+
+      $feature.BA_NAME == 'West flowing rivers from Tapi to Tadri Basin',
+      'West flowing rivers\\nfrom Tapi to Tadri Basin',
+
+      $feature.BA_NAME == 'West flowing rivers from Tadri to Kanyakumari Basin',
+      'West flowing rivers\\nfrom Tadri to Kanyakumari Basin',
+
+      $feature.BA_NAME == 'Minor rivers draining into Myanmar and Bangladesh Basin',
+      'Minor rivers draining into\\nMyanmar and Bangladesh Basin',
+
+      $feature.BA_NAME == 'East flowing rivers between Pennar and Kanyakumari Basin',
+      'East flowing rivers\\nbetween Pennar and Kanyakumari Basin',
+
+      $feature.BA_NAME == 'East flowing rivers between Mahanadi and Pennar Basin',
+      'East flowing rivers\\nbetween Mahanadi and Pennar Basin',
+
+      $feature.BA_NAME == 'Area of Inland drainage in Rajasthan Basin',
+      'Area of Inland drainage\\nin Rajasthan Basin',
+
+	  $feature.BA_NAME
+    )
+  `
+},
+    labelPlacement: "polygon-center",
+    minScale: 15000000,   // show from country level
+    maxScale: 0,
+    symbol: {
+      type: "text",
+      color: [120, 200, 200, 0.9],
+      haloColor: [0, 0, 0, 0.9],
+      haloSize: "1.5px",
+      font: {
+        family: "Arial",
+        size: 10,
+        weight: "bold"
+      }
+    }
+  }
+];
+
+
+  let riverBasinsLayer;
+
+fetch("river-basins.geojson")
+  .then(r => r.json())
+  .then(geojson => {
+
+    const features = [];
+
+geojson.features.forEach((f, i) => {
+  if (!f.geometry) return;
+
+  if (f.geometry.type === "Polygon") {
+    features.push({
+      geometry: {
+        type: "polygon",
+        rings: f.geometry.coordinates,
+        spatialReference: { wkid: 4326 }
+      },
+      attributes: { OBJECTID: i + 1, ...f.properties }
+    });
+  }
+
+  if (f.geometry.type === "MultiPolygon") {
+    f.geometry.coordinates.forEach((poly, j) => {
+      features.push({
+        geometry: {
+          type: "polygon",
+          rings: poly,
+          spatialReference: { wkid: 4326 }
+        },
+        attributes: { OBJECTID: i * 1000 + j, ...f.properties }
+      });
+    });
+  }
+});
+
+
+    const fields = Object.keys(features[0].attributes).map(k => ({
+      name: k,
+      alias: k.replace(/_/g, " "),
+      type: k === "OBJECTID" ? "oid" : "string"
+    }));
+
+    riverBasinsLayer = new FeatureLayer({
+      source: features,
+      objectIdField: "OBJECTID",
+      geometryType: "polygon",
+      spatialReference: { wkid: 4326 },
+      fields: fields,
+      renderer: {
+        type: "simple",
+        symbol: {
+          type: "simple-fill",
+          color: [0, 0, 0, 0],
+          outline: {
+            color: [120, 200, 200, 0.9],
+            width: 1.2
+          }
+        }
+      },
+      labelingInfo: riverBasinsLabeling,
+	    labelsVisible: true,
+	    visible: false,
+      title: "River Basins"
+    });
+
+    map.add(riverBasinsLayer, 0);
+
+    riverBasinsChk.onchange = () => {
+      riverBasinsLayer.visible = riverBasinsChk.checked;
+    };
+  });
+
+  // feature layer for ho sites
+  let hoFeatureLayer;
+
+fetch("ho-sites.geojson")
+  .then(r => r.json())
+  .then(geojson => {
+
+    const features = geojson.features.map((f, i) => ({
+      geometry: new Point({
+        longitude: f.geometry.coordinates[0],
+        latitude: f.geometry.coordinates[1],
+        spatialReference: { wkid: 4326 }
+      }),
+      attributes: {
+        OBJECTID: i + 1,
+        ...f.properties
+      }
+    }));
+
+    if (!features.length) return;
+
+    const fields = Object.keys(features[0].attributes).map(k => ({
+      name: k,
+      alias: k.replace(/_/g, " "),
+      type: k === "OBJECTID" ? "oid" : "string"
+    }));
+
+    hoFeatureLayer = new FeatureLayer({
+      source: features,
+      objectIdField: "OBJECTID",
+      geometryType: "point",
+      spatialReference: { wkid: 4326 },
+      fields: fields,
+      renderer: {
+        type: "simple",
+        symbol: {
+          type: "simple-marker",
+          color: [220, 20, 60, 0.9],   // crimson red
+          size: 4
+          // outline: {
+          //  color: [255, 255, 255],
+          //  width: 1
+         // }
+        }
+      },
+      popupTemplate: {
+        title: "HO Site",
+        content: [
+          {
+            type: "fields",
+            fieldInfos: fields
+              .filter(f => f.name !== "OBJECTID")
+              .map(f => ({
+                fieldName: f.name,
+                label: f.alias
+              }))
+          }
+        ]
+      },
+      visible: false
+    });
+
+    map.add(hoFeatureLayer);
+
+    // Checkbox toggle
+    hoChk.onchange = () => {
+      hoFeatureLayer.visible = hoChk.checked;
+    };
+
+  })
+  .catch(err => console.error("Failed to load ho-sites.geojson", err));
+
+
+  const scaleBar = new ScaleBar({
+  view: view,
+  unit: "metric"
+});
+
+view.ui.add(scaleBar, {
+  position: "bottom-right"
+});
+
+
+  if (!isMobile && !isIOS) {
+  view.on("drag", collapse);
+  view.on("mouse-wheel", collapse);
+}
+
+   damSearch.addEventListener("focus", expand);
+
+  basemapSelect.onchange = () => {
+    map.basemap =
+      basemapSelect.value === "none" ? null :
+      basemapSelect.value === "satellite" ? "satellite" :
+	  basemapSelect.value === "hybrid" ? "hybrid" :
+      basemapSelect.value === "streets" ? "streets-vector" :
+      "topo-vector";
+  };
+
+  stateChk.onchange = () => stateLayer.visible = stateChk.checked;
+  districtChk.onchange = () => districtLayer.visible = districtChk.checked;
+  riverChk.onchange = () => riverLayer.visible = riverChk.checked;
+  riverBasinsChk.onchange = () => riverBasinsLayer.visible = riverBasinsChk.checked;
+
+  damChk.onchange = () => {
+    if (damFeatureLayer) damFeatureLayer.visible = damChk.checked;
+  };
+
+  
+
+  // ── State / SDSO filter logic (outer scope) ─────────────────────────
+  var stateFilterEl = document.getElementById("stateFilter");
+  var sdsoFilterEl  = document.getElementById("sdsoFilter");
+  var _stateMap = {};   // { stateName: [sdso1, sdso2, ...] }
+  var _sdsoList = [];
+
+  function buildFilterIndexes(json) {
+    var sm = {};
+    var sdsoSet = {};
+    json.forEach(function(dam) {
+      var st = (dam.State || "").trim();
+      var sd = (dam.SDSO  || "").trim();
+      if (!st) return;
+      if (!sm[st]) sm[st] = {};
+      if (sd) { sm[st][sd] = true; sdsoSet[sd] = true; }
+    });
+    _stateMap = sm;
+    _sdsoList = Object.keys(sdsoSet).sort();
+
+    // Populate State dropdown
+    Object.keys(sm).sort().forEach(function(s) {
+      var opt = document.createElement("option");
+      opt.value = s; opt.textContent = s;
+      stateFilterEl.appendChild(opt);
+    });
+
+    // Populate SDSO on load with all SDSOs
+    populateSdso("");
+
+    stateFilterEl.onchange = function() {
+      // Repopulate SDSO list for selected state, preserve current SDSO if still valid
+      var curSdso = sdsoFilterEl.value;
+      populateSdso(stateFilterEl.value);
+      // Keep SDSO selection if it exists in the new list, else reset
+      if (curSdso && sdsoFilterEl.querySelector('option[value="' + curSdso + '"]')) {
+        sdsoFilterEl.value = curSdso;
+      } else {
+        sdsoFilterEl.value = "";
+      }
+      applyFilters();
+    };
+    sdsoFilterEl.onchange = function() {
+      applyFilters();
+    };
+  }
+
+  function populateSdso(selectedState) {
+    sdsoFilterEl.innerHTML = '<option value="">— All SDSOs —</option>';
+    var list = selectedState
+      ? Object.keys(_stateMap[selectedState] || {}).sort()
+      : _sdsoList;
+    list.forEach(function(s) {
+      var opt = document.createElement("option");
+      opt.value = s; opt.textContent = s;
+      sdsoFilterEl.appendChild(opt);
+    });
+  }
+
+  function applyFilters() {
+    // Keep search text if agg filter is active
+    if (!activeAggFilter) {
+      damSearch.value = "";
+      document.getElementById("results").style.display = "none";
+      document.getElementById("clearSearch").style.display = "none";
+      currentMatches = [];
+      groupedResults = [];
+      activeIndex = -1;
+      // Default labeling + zoom for dropdown-only filters
+      var where = buildFilterWhere();
+      damFeatureLayer.definitionExpression = where || null;
+      damFeatureLayer.labelingInfo = normalDamLabeling;
+      view.popup.close();
+      if (where) {
+        damFeatureLayer.queryExtent({ where: where }).then(function(result) {
+          if (result.extent) view.goTo(result.extent.expand(1.3), { duration: 1500 });
+        });
+      }
+    } else {
+      // Agg filter active → re-query with combined WHERE, forced labeling, popup
+      document.getElementById("results").style.display = "none";
+      reapplyAggLabeling();
+    }
+  }
+
+  // Apply an aggregated search filter (persists across dropdown changes)
+  function applyAggFilter(field, value, label) {
+    activeAggFilter = { field: field, value: value, label: label };
+    damSearch.value = label;
+    document.getElementById("clearSearch").style.display = "block";
+    document.getElementById("results").style.display = "none";
+    activeIndex = -1;
+    var where = buildFilterWhere();
+    damFeatureLayer.definitionExpression = where || null;
+    view.popup.close();
+    // Query matching features → forced labeling + popup (same as before)
+    damFeatureLayer.queryFeatures({
+      where: where || "1=1",
+      outFields: ["*"],
+      returnGeometry: true
+    }).then(function(response) {
+      var features = response.features;
+      if (!features.length) return;
+      var objectIds = features.map(function(f) { return f.attributes.OBJECTID; });
+      var geometries = features.map(function(f) { return f.geometry; });
+      damFeatureLayer.labelingInfo = getForcedLabeling(objectIds);
+      view.goTo(geometries, { duration: 2000 }).then(function() {
+        view.popup.open({ features: features, location: geometries[0] });
+      });
+    });
+  }
+
+  // Re-apply forced labeling + popup when dropdown changes while agg filter is active
+  function reapplyAggLabeling() {
+    var where = buildFilterWhere();
+    damFeatureLayer.definitionExpression = where || null;
+    view.popup.close();
+    damFeatureLayer.queryFeatures({
+      where: where || "1=1",
+      outFields: ["*"],
+      returnGeometry: true
+    }).then(function(response) {
+      var features = response.features;
+      if (!features.length) {
+        damFeatureLayer.labelingInfo = normalDamLabeling;
+        return;
+      }
+      var objectIds = features.map(function(f) { return f.attributes.OBJECTID; });
+      var geometries = features.map(function(f) { return f.geometry; });
+      damFeatureLayer.labelingInfo = getForcedLabeling(objectIds);
+      view.goTo(geometries, { duration: 1500 }).then(function() {
+        view.popup.open({ features: features, location: geometries[0] });
+      });
+    });
+  }
+
+  // Load dams → create FeatureLayer once
+  fetch("dams.json")
+    .then(r => r.json())
+    .then(json => {
+      const features = [];
+
+      json.forEach((dam, index) => {
+        const lat = parseFloat(dam.Latitude);
+        const lon = parseFloat(dam.Longitude);
+        if (!lat || !lon) return;
+
+        const point = new Point({
+          longitude: lon,
+          latitude: lat,
+          spatialReference: { wkid: 4326 }
+        });
+
+        features.push({
+          geometry: point,
+          attributes: {
+            OBJECTID: index + 1,
+            Name: dam.Name || "Unknown",
+            ...dam  // keep all other fields for popup
+          }
+        });
+      });
+
+      // ── Renderer (simple marker, size based on storage) ───────────────
+      const renderer = {
+        type: "simple",
+        symbol: {
+          type: "simple-marker",
+          color: [0, 102, 204, 0.9],
+          size: 6,
+          outline: null
+        },
+        visualVariables: [{
+          type: "size",
+          field: "Gross_storage",
+          field: "Gross_storage",
+          stops: [
+            { value: 0,   size: 3 },
+            { value: 500, size: 6 }
+          ],
+          legendOptions: { title: "Storage (MCM)" }
+        }]
+      };
+
+      // ── Labeling (robust even without basemap) ────────────────────────
+      const labelingInfo = [
+
+  /* ==============================
+     RULE 1: ALL DAMS (large zoom)
+     Scale: 0 to 1:500,000
+  ============================== */
+  {
+    labelExpressionInfo: {
+      expression: `
+        Proper($feature.Name)
+      `
+    },
+    minScale: 500000,
+    maxScale: 0,
+    labelPlacement: "above-center",
+    symbol: {
+      type: "text",
+      color: [255, 180, 90],
+      // haloColor: [0, 0, 0, 0.9],
+      // haloSize: "1.5px",
+      font: {
+        size: 10,
+        family: "Arial",
+        weight: "bold"
+      },
+      yoffset: 10
+    }
+  },
+
+  /* =========================================
+     RULE 2: ONLY DAMS >= 500 MCM (mid zoom)
+     Scale: 1:500,000 to 1:5,000,000
+  ========================================= */
+  {
+    labelExpressionInfo: {
+      expression: `
+        IIf(
+          Number($feature.Gross_storage) >= 500,
+          Proper($feature.Name),
+          ""
+        )
+      `
+    },
+    minScale: 5000000,
+    maxScale: 500001,
+    labelPlacement: "above-center",
+    symbol: {
+      type: "text",
+      color: [255, 180, 0],
+      // haloColor: [0, 0, 0, 0.9],
+      // haloSize: "1.5px",
+      font: {
+        size: 10,
+        family: "Arial",
+        weight: "bold"
+      },
+      yoffset: 10
+    }
+  }
+
+];
+// 🔐 Keep a copy of default dam labeling
+normalDamLabeling = labelingInfo;
+
+      // ── AUTO-GENERATE FIELDS FROM JSON ATTRIBUTES ─────────────
+const sampleAttrs = features[0].attributes;
+
+const fields = Object.keys(sampleAttrs).map(key => ({
+  name: key,
+  alias: key.replace(/_/g, " "),
+  type: typeof sampleAttrs[key] === "number" ? "double" : "string"
+}));
+
+// Ensure OBJECTID is correct
+const oidField = fields.find(f => f.name === "OBJECTID");
+if (oidField) oidField.type = "oid";
+
+
+      damFeatureLayer = new FeatureLayer({
+        source: features,
+        objectIdField: "OBJECTID",
+        geometryType: "point",
+        spatialReference: { wkid: 4326 },
+        fields: fields,
+        renderer: renderer,
+        labelingInfo: labelingInfo,
+        visible: true,
+        popupTemplate: {
+          title: "{Name}",
+          content: [
+            {
+              type: "fields",
+              fieldInfos: Object.keys(features[0]?.attributes || {})
+                .filter(k => k !== "OBJECTID")
+                .map(field => ({ fieldName: field, label: field.replace(/_/g, " ") }))
+            }
+          ]
+        }
+      });
+
+      map.add(damFeatureLayer);
+
+      // Enable/disable with checkbox
+      damChk.onchange = () => {
+        damFeatureLayer.visible = damChk.checked;
+      };
+
+      // ── Build State & SDSO indexes from raw JSON ───────────────
+      buildFilterIndexes(json);
+
+    })
+    .catch(err => console.error("Failed to load dams.json:", err));
+
+  // ── Search functionality (updated for case-insensitivity and more results) ────────────────────────────
+  let currentMatches = [];
+  let activeIndex = -1;
+  let groupedResults = [];
+  let searchMode = "dam"; // "dam" | "owner" | "health" | "oper" | "drip" | "damtype" | "gated" | "agecat" | "heightcat" | "statusrrssd"
+  var activeAggFilter = null; // { field, value, label } — persists across dropdown changes
+  // Hoisted so search query can access active filter (set after dams.json loads)
+  function buildFilterWhere() {
+    var st = stateFilterEl ? stateFilterEl.value : "";
+    var sd = sdsoFilterEl  ? sdsoFilterEl.value  : "";
+    var parts = [];
+    if (st) parts.push("State = '" + st.replace(/'/g, "''") + "'");
+    if (sd) parts.push("SDSO = '"  + sd.replace(/'/g, "''") + "'");
+    if (activeAggFilter) parts.push(activeAggFilter.field + " = '" + activeAggFilter.value.replace(/'/g, "''") + "'");
+    return parts.length ? parts.join(" AND ") : null;
+  }
+
+	// 🔴 Forced labeling for selected dams (ignore zoom)
+function getForcedLabeling(objectIds) {
+  return [
+    {
+      labelExpressionInfo: {
+        expression: "Proper($feature.Name)"
+      },
+      where: `OBJECTID IN (${objectIds.join(",")})`,
+      labelPlacement: "above-center",
+      symbol: {
+        type: "text",
+        color: [255, 255, 0],
+        haloColor: [0, 0, 0, 1],
+        haloSize: "2px",
+        font: {
+          size: 11,
+          family: "Arial",
+          weight: "bold"
+        },
+        yoffset: 10
+      }
+      // ❗ No minScale / maxScale → always visible
+    }
+  ];
+}
+
+
+  damSearch.addEventListener("input", function () {
+    const q = this.value.toLowerCase().trim();
+    results.innerHTML = "";
+    results.style.display = "none";
+    activeIndex = -1;
+    currentMatches = [];
+
+    document.getElementById("clearSearch").style.display = q ? "block" : "none";
+    if (!q || !damFeatureLayer) return;
+
+    // Query the FeatureLayer instead of graphics
+    // Scope search within active State/SDSO filter if set
+    var filterWhere = buildFilterWhere();
+    const searchWhere = `
+      LOWER(Name) LIKE '%${q.replace(/'/g, "''")}%'
+      OR LOWER(Owner) LIKE '%${q.replace(/'/g, "''")}%'
+      OR LOWER(Health_Cat) LIKE '%${q.replace(/'/g, "''")}%'
+      OR LOWER(Oper_Status) LIKE '%${q.replace(/'/g, "''")}%'
+      OR LOWER(DRIP) LIKE '%${q.replace(/'/g, "''")}%'
+      OR LOWER(Dam_type) LIKE '%${q.replace(/'/g, "''")}%'
+      OR LOWER(Gated_Ungated) LIKE '%${q.replace(/'/g, "''")}%'
+      OR LOWER(Age_Cat) LIKE '%${q.replace(/'/g, "''")}%'
+      OR LOWER(Height_Cat) LIKE '%${q.replace(/'/g, "''")}%'
+      OR LOWER(Status_RRSSD) LIKE '%${q.replace(/'/g, "''")}%'
+      OR LOWER(Region) LIKE '%${q.replace(/'/g, "''")}%'
+    `;
+    damFeatureLayer.queryFeatures({
+      where: filterWhere ? `(${filterWhere}) AND (${searchWhere})` : searchWhere,
+
+      outFields: ["*"],
+      returnGeometry: true,
+      orderByFields: ["Name ASC"],
+      num: 7000  // Increased limit to ensure more dams are found if matching
+    }).then(response => {
+      currentMatches = response.features;
+      if (!currentMatches.length) return;
+
+      results.style.display = "block";
+      currentMatches = response.features;
+
+results.innerHTML = "";
+results.style.display = "block";
+
+// Check if this is an owner-based search
+const ownerMatches = currentMatches.filter(f =>
+  (f.attributes.Owner || "").toLowerCase().includes(q)
+);
+const healthMatches = currentMatches.filter(f =>
+  (f.attributes.Health_Cat || "").toLowerCase().includes(q)
+);
+
+const operMatches = currentMatches.filter(f =>
+  (f.attributes.Oper_Status || "").toLowerCase().includes(q)
+);
+const dripMatches = currentMatches.filter(f =>
+  (f.attributes.DRIP || "").toLowerCase().includes(q)
+);
+const damTypeMatches = currentMatches.filter(f =>
+  (f.attributes.Dam_type || "").toLowerCase().includes(q)
+);
+const gatedMatches = currentMatches.filter(f =>
+  (f.attributes.Gated_Ungated || "").toLowerCase().includes(q)
+);
+const ageCatMatches = currentMatches.filter(f =>
+  (f.attributes.Age_Cat || "").toLowerCase().includes(q)
+);
+const heightCatMatches = currentMatches.filter(f =>
+  (f.attributes.Height_Cat || "").toLowerCase().includes(q)
+);
+const statusRrssdMatches = currentMatches.filter(f =>
+  (f.attributes.Status_RRSSD || "").toLowerCase().includes(q)
+);
+const regionMatches = currentMatches.filter(f =>
+  (f.attributes.Region || "").toLowerCase().includes(q)
+);
+
+const isDamMatch = currentMatches.some(f =>
+  (f.attributes.Name || "").toLowerCase().includes(q)
+);
+
+if (ownerMatches.length && !isDamMatch) {
+  searchMode = "owner";
+  groupedResults = [];
+
+  const groupMap = {};
+
+  ownerMatches.forEach(f => {
+    const key = f.attributes.Owner;
+    if (!groupMap[key]) groupMap[key] = [];
+    groupMap[key].push(f);
+  });
+
+  Object.keys(groupMap).forEach((owner, idx) => {
+    const dams = groupMap[owner];
+
+    groupedResults.push({
+      owner,
+      dams
+    });
+
+    const div = document.createElement("div");
+    div.className = "result-item";
+    div.textContent = `${owner} (${dams.length} dams)`;
+    div.onclick = () => selectOwner(idx);
+    results.appendChild(div);
+  });
+
+} else if (healthMatches.length && !isDamMatch) {
+  searchMode = "health";
+  groupedResults = [];
+
+  const groupMap = {};
+
+  healthMatches.forEach(f => {
+    const key = f.attributes.Health_Cat || "Unknown";
+    if (!groupMap[key]) groupMap[key] = [];
+    groupMap[key].push(f);
+  });
+
+  Object.keys(groupMap).forEach((health, idx) => {
+    const dams = groupMap[health];
+
+    groupedResults.push({
+      health,
+      dams
+    });
+
+    const div = document.createElement("div");
+    div.className = "result-item";
+    div.textContent = `${health} (${dams.length} dams)`;
+    div.onclick = () => selectHealth(idx);
+    results.appendChild(div);
+  });
+  
+} else if (operMatches.length && !isDamMatch) {
+  searchMode = "oper";
+  groupedResults = [];
+
+  const groupMap = {};
+
+  operMatches.forEach(f => {
+    const key = f.attributes.Oper_Status || "Unknown";
+    if (!groupMap[key]) groupMap[key] = [];
+    groupMap[key].push(f);
+  });
+
+  Object.keys(groupMap).forEach((oper, idx) => {
+    const dams = groupMap[oper];
+
+    groupedResults.push({ oper, dams });
+
+    const div = document.createElement("div");
+    div.className = "result-item";
+    div.textContent = `${oper} (${dams.length} dams)`;
+    div.onclick = () => selectOperStatus(idx);
+    results.appendChild(div);
+  });
+
+} else if (dripMatches.length && !isDamMatch) {
+  searchMode = "drip";
+  groupedResults = [];
+  const groupMap = {};
+  dripMatches.forEach(f => {
+    const key = f.attributes.DRIP || "Unknown";
+    if (!groupMap[key]) groupMap[key] = [];
+    groupMap[key].push(f);
+  });
+  Object.keys(groupMap).sort().forEach((drip, idx) => {
+    const dams = groupMap[drip];
+    groupedResults.push({ drip, dams });
+    const div = document.createElement("div");
+    div.className = "result-item";
+    div.textContent = `DRIP ${drip} (${dams.length} dams)`;
+    div.onclick = () => selectGrouped(idx, "drip");
+    results.appendChild(div);
+  });
+
+} else if (damTypeMatches.length && !isDamMatch) {
+  searchMode = "damtype";
+  groupedResults = [];
+  const groupMap = {};
+  damTypeMatches.forEach(f => {
+    const key = f.attributes.Dam_type || "Unknown";
+    if (!groupMap[key]) groupMap[key] = [];
+    groupMap[key].push(f);
+  });
+  Object.keys(groupMap).sort().forEach((dtype, idx) => {
+    const dams = groupMap[dtype];
+    groupedResults.push({ dtype, dams });
+    const div = document.createElement("div");
+    div.className = "result-item";
+    div.textContent = `${dtype} (${dams.length} dams)`;
+    div.onclick = () => selectGrouped(idx, "damtype");
+    results.appendChild(div);
+  });
+
+} else if (gatedMatches.length && !isDamMatch) {
+  searchMode = "gated";
+  groupedResults = [];
+  const groupMap = {};
+  gatedMatches.forEach(f => {
+    const key = f.attributes.Gated_Ungated || "Unknown";
+    if (!groupMap[key]) groupMap[key] = [];
+    groupMap[key].push(f);
+  });
+  Object.keys(groupMap).sort().forEach((gated, idx) => {
+    const dams = groupMap[gated];
+    groupedResults.push({ gated, dams });
+    const div = document.createElement("div");
+    div.className = "result-item";
+    div.textContent = `${gated} (${dams.length} dams)`;
+    div.onclick = () => selectGrouped(idx, "gated");
+    results.appendChild(div);
+  });
+
+} else if (ageCatMatches.length && !isDamMatch) {
+  searchMode = "agecat";
+  groupedResults = [];
+  const groupMap = {};
+  ageCatMatches.forEach(f => {
+    const key = f.attributes.Age_Cat || "Unknown";
+    if (!groupMap[key]) groupMap[key] = [];
+    groupMap[key].push(f);
+  });
+  Object.keys(groupMap).sort().forEach((agecat, idx) => {
+    const dams = groupMap[agecat];
+    groupedResults.push({ agecat, dams });
+    const div = document.createElement("div");
+    div.className = "result-item";
+    div.textContent = `${agecat} (${dams.length} dams)`;
+    div.onclick = () => selectGrouped(idx, "agecat");
+    results.appendChild(div);
+  });
+
+} else if (heightCatMatches.length && !isDamMatch) {
+  searchMode = "heightcat";
+  groupedResults = [];
+  const groupMap = {};
+  heightCatMatches.forEach(f => {
+    const key = f.attributes.Height_Cat || "Unknown";
+    if (!groupMap[key]) groupMap[key] = [];
+    groupMap[key].push(f);
+  });
+  Object.keys(groupMap).sort().forEach((heightcat, idx) => {
+    const dams = groupMap[heightcat];
+    groupedResults.push({ heightcat, dams });
+    const div = document.createElement("div");
+    div.className = "result-item";
+    div.textContent = `${heightcat} (${dams.length} dams)`;
+    div.onclick = () => selectGrouped(idx, "heightcat");
+    results.appendChild(div);
+  });
+
+} else if (statusRrssdMatches.length && !isDamMatch) {
+  searchMode = "statusrrssd";
+  groupedResults = [];
+  const groupMap = {};
+  statusRrssdMatches.forEach(f => {
+    const key = f.attributes.Status_RRSSD || "Unknown";
+    if (!groupMap[key]) groupMap[key] = [];
+    groupMap[key].push(f);
+  });
+  Object.keys(groupMap).sort().forEach((statusrrssd, idx) => {
+    const dams = groupMap[statusrrssd];
+    groupedResults.push({ statusrrssd, dams });
+    const div = document.createElement("div");
+    div.className = "result-item";
+    div.textContent = `${statusrrssd} (${dams.length} dams)`;
+    div.onclick = () => selectGrouped(idx, "statusrrssd");
+    results.appendChild(div);
+  });
+
+} else if (regionMatches.length && !isDamMatch) {
+  searchMode = "region";
+  groupedResults = [];
+  const groupMap = {};
+  regionMatches.forEach(f => {
+    const key = f.attributes.Region || "Unknown";
+    if (!groupMap[key]) groupMap[key] = [];
+    groupMap[key].push(f);
+  });
+  Object.keys(groupMap).sort().forEach((region, idx) => {
+    const dams = groupMap[region];
+    groupedResults.push({ region, dams });
+    const div = document.createElement("div");
+    div.className = "result-item";
+    div.textContent = `${region} (${dams.length} dams)`;
+    div.onclick = () => selectGrouped(idx, "region");
+    results.appendChild(div);
+  });
+
+} else {
+  // Normal dam-name search
+  searchMode = "dam";
+  groupedResults = [];
+
+  currentMatches.forEach((feature, idx) => {
+  const div = document.createElement("div");
+  div.className = "result-item";
+  div.textContent = feature.attributes.Name;   // ✅ FIX
+  div.onclick = () => selectDam(idx);
+  results.appendChild(div);
+  });
+}
+
+      
+    });
+  });
+
+  damSearch.addEventListener("keydown", function (e) {
+
+  const items = results.children;
+
+  // Arrow navigation (unchanged behavior)
+  if (e.key === "ArrowDown" && items.length) {
+    e.preventDefault();
+    activeIndex = (activeIndex + 1) % items.length;
+  }
+  else if (e.key === "ArrowUp" && items.length) {
+    e.preventDefault();
+    activeIndex = (activeIndex - 1 + items.length) % items.length;
+  }
+
+  // ENTER key logic (HYBRID)
+  else if (e.key === "Enter") {
+    e.preventDefault();
+
+    // Case 1: Dam selected from dropdown
+    if (activeIndex >= 0 && currentMatches.length) {
+      selectDam(activeIndex);
+      return;
+    }
+
+    // Case 2: No dam selected → geocode
+    const query = damSearch.value.trim();
+    if (!query) return;
+
+    locator.addressToLocations(worldLocator, {
+      address: { SingleLine: query },
+      maxLocations: 1,
+      countryCode: "IND"
+    }).then(results => {
+
+      if (!results.length) {
+        alert("Location not found");
+        return;
+      }
+
+      const loc = results[0];
+
+      view.popup.close();
+
+      view.goTo({
+        target: loc.location,
+        zoom: 10
+      }, { duration: 2000 }).then(() => {
+        view.popup.open({
+          title: loc.address,
+          location: loc.location,
+          content: "Location searched using ArcGIS Geocoding"
+        });
+      });
+
+    }).catch(err => {
+      console.error("Geocoding error", err);
+    });
+  }
+
+  // Highlight dropdown item
+  [...items].forEach((el, i) => {
+    el.classList.toggle("active", i === activeIndex);
+  });
+
+});
+
+  function selectDam(index) {
+    const feature = currentMatches[index];
+    if (!feature) return;
+	document.getElementById("results").style.display = "none";
+    damSearch.value = feature.attributes.Name;
+    document.getElementById("clearSearch").style.display = "block";
+    activeIndex = -1;
+
+    view.popup.close();
+    view.goTo({ target: feature.geometry, zoom: 11 }, { duration: 2000 })
+      .then(() => {
+        view.popup.open({
+          features: [feature],
+          location: feature.geometry
+        });
+      });
+  }
+
+  function selectOwner(index) {
+  const group = groupedResults[index];
+  if (!group) return;
+  applyAggFilter("Owner", group.owner, group.owner);
+}
+  function selectHealth(index) {
+  const group = groupedResults[index];
+  if (!group) return;
+  applyAggFilter("Health_Cat", group.health, group.health);
+}
+
+  function selectOperStatus(index) {
+  const group = groupedResults[index];
+  if (!group) return;
+  applyAggFilter("Oper_Status", group.oper, group.oper);
+}
+
+
+  // Generic select for DRIP / Dam_type / Gated_Ungated groups
+  function selectGrouped(index, mode) {
+    const group = groupedResults[index];
+    if (!group) return;
+    const fieldMap = { drip: "DRIP", damtype: "Dam_type", gated: "Gated_Ungated", agecat: "Age_Cat", heightcat: "Height_Cat", statusrrssd: "Status_RRSSD", region: "Region" };
+    const keyMap   = { drip: group.drip, damtype: group.dtype, gated: group.gated, agecat: group.agecat, heightcat: group.heightcat, statusrrssd: group.statusrrssd, region: group.region };
+    const field = fieldMap[mode];
+    const value = keyMap[mode] || "";
+    applyAggFilter(field, value, value);
+  }
+
+	 
+  document.getElementById("clearSearch").onclick = () => {
+  damSearch.value = "";
+  document.getElementById("results").style.display = "none";
+  currentMatches = [];
+  groupedResults = [];
+  activeIndex = -1;
+  activeAggFilter = null;
+  document.getElementById("clearSearch").style.display = "none";
+  view.popup.close();
+
+  // 🔄 Reapply only dropdown filters (or full dataset if none set)
+  var where = buildFilterWhere();
+  damFeatureLayer.definitionExpression = where || null;
+  damFeatureLayer.labelingInfo = normalDamLabeling;
+  damFeatureLayer.refresh();
+};
+
+
+});
+</script>
+
+
+<script>
+// ── PWA: Register Service Worker ─────────────────────────────────────────────
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js")
+      .then(reg => {
+        console.log("[PWA] Service worker registered:", reg.scope);
+
+        // If a new SW is waiting, prompt user to refresh
+        reg.addEventListener("updatefound", () => {
+          const newWorker = reg.installing;
+          newWorker.addEventListener("statechange", () => {
+            if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+              showUpdateBanner();
+            }
+          });
+        });
+      })
+      .catch(err => console.warn("[PWA] SW registration failed:", err));
+  });
+}
+
+// ── Update banner ─────────────────────────────────────────────────────────────
+function showUpdateBanner() {
+  const banner = document.createElement("div");
+  banner.style.cssText = `
+    position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+    background:#0d47a1; color:white; padding:10px 20px; border-radius:24px;
+    font-size:13px; font-family:Arial,sans-serif; z-index:9999;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3); display:flex; gap:12px; align-items:center;
+  `;
+  banner.innerHTML = `
+    <span>New version available</span>
+    <button onclick="window.location.reload()" style="
+      background:white; color:#0d47a1; border:none; border-radius:12px;
+      padding:4px 12px; font-weight:bold; cursor:pointer; font-size:12px;
+    ">Update</button>
+  `;
+  document.body.appendChild(banner);
+}
+
+// ── iOS install hint (shown once, dismissed on tap) ───────────────────────────
+function isIos() {
+  return /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase());
+}
+function isInStandaloneMode() {
+  return ("standalone" in window.navigator) && window.navigator.standalone;
+}
+if (isIos() && !isInStandaloneMode() && !localStorage.getItem("pwa-hint-dismissed")) {
+  setTimeout(() => {
+    const hint = document.createElement("div");
+    hint.id = "pwa-hint";
+    hint.style.cssText = `
+      position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+      background:#0d47a1; color:white; padding:14px 20px; border-radius:16px;
+      font-size:13px; font-family:Arial,sans-serif; z-index:9999; max-width:290px;
+      box-shadow:0 4px 20px rgba(0,0,0,0.35); text-align:center; line-height:1.5;
+    `;
+    hint.innerHTML = `
+      <div style="font-weight:bold;margin-bottom:6px;">📲 Install DHARMA</div>
+      <div>Tap <strong>Share</strong> then <strong>"Add to Home Screen"</strong> to install as an app.</div>
+      <div style="margin-top:10px;">
+        <button onclick="document.getElementById('pwa-hint').remove();localStorage.setItem('pwa-hint-dismissed','1')" style="
+          background:rgba(255,255,255,0.2); color:white; border:1px solid rgba(255,255,255,0.4);
+          border-radius:10px; padding:5px 16px; cursor:pointer; font-size:12px;
+        ">Got it</button>
+      </div>
+    `;
+    document.body.appendChild(hint);
+    setTimeout(() => hint && hint.remove(), 10000);
+  }, 3000);
+}
+</script>
+
+</body>
+</html>
